@@ -33,10 +33,13 @@ jobs:
             flex bison libfl2 libfl-dev \
             perl perl-doc python3 \
             help2man ccache \
-            zlib1g zlib1g-dev \
-            libgoogle-perftools-dev numactl
+            zlib1g zlib1g-dev
+          # NOTE: libgoogle-perftools-dev + numactl (Verilator's optional
+          # --prof-exec profiling) are intentionally omitted -- not needed to
+          # build/run Verilator, and their libunwind-dev dep is unsatisfiable
+          # on some hosts.
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.inputs.version }}   # build the pinned upstream tag
 
@@ -71,7 +74,7 @@ jobs:
           brew install autoconf help2man bison flex ccache
           # (perl, python3, make, clang, git ship with macOS / Xcode CLT)
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.inputs.version }}
 
