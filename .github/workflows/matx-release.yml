@@ -1,0 +1,134 @@
+name: matx-release
+
+# Builds relocatable Verilator installs for linux-x86_64 and darwin-aarch64 and
+# publishes them as assets on a single release, which the matx repo consumes via
+# http_archive (strip_prefix = "inst").
+#
+# Linux built on ubuntu-22.04 (glibc 2.35, matches matx workers).
+# macOS built on macos-15 (Apple Silicon / arm64).
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "upstream Verilator tag to build (e.g. v5.048)"
+        default: "v5.048"
+      try:
+        description: "release try suffix (1 for first attempt, 2, ...)"
+        default: "1"
+
+permissions:
+  contents: write   # needed to create the release / upload the tarball
+
+jobs:
+  linux-x86_64:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          # Verilator's documented build prerequisites (required + recommended).
+          sudo apt-get install -y --no-install-recommends \
+            git make autoconf g++ \
+            flex bison libfl2 libfl-dev \
+            perl perl-doc python3 \
+            help2man ccache \
+            zlib1g zlib1g-dev \
+            libgoogle-perftools-dev numactl
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.version }}   # build the pinned upstream tag
+
+      - name: Build and install (relocatable prefix)
+        run: |
+          autoconf
+          ./configure --prefix="$PWD/inst"
+          make -j"$(nproc)"
+          make install
+
+      - name: Package
+        run: |
+          # Unstamped name; the release job stamps + renames. Top-level inst/.
+          tar -czf verilator-linux-x86_64.tar.gz inst
+
+      - name: Sanity-check the packaged install runs
+        run: |
+          rm -rf /tmp/vt && mkdir -p /tmp/vt
+          tar -C /tmp/vt -xzf verilator-linux-x86_64.tar.gz
+          VERILATOR_ROOT=/tmp/vt/inst/share/verilator /tmp/vt/inst/bin/verilator_bin --version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verilator-linux-x86_64
+          path: verilator-linux-x86_64.tar.gz
+
+  darwin-aarch64:
+    runs-on: macos-15   # Apple Silicon / arm64 (newer runner, matches iverilog)
+    steps:
+      - name: Install build dependencies
+        run: |
+          brew install autoconf help2man bison flex ccache
+          # (perl, python3, make, clang, git ship with macOS / Xcode CLT)
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.version }}
+
+      - name: Build and install (relocatable prefix)
+        run: |
+          # macOS ships ancient bison/flex; use the Homebrew (keg-only) ones.
+          export PATH="$(brew --prefix bison)/bin:$(brew --prefix flex)/bin:$PATH"
+          export LDFLAGS="-L$(brew --prefix flex)/lib"
+          export CPPFLAGS="-I$(brew --prefix flex)/include"
+          # Build on the newer runner but stay runnable on older macOS.
+          export MACOSX_DEPLOYMENT_TARGET=13.0
+          autoconf
+          ./configure --prefix="$PWD/inst"
+          make -j"$(sysctl -n hw.ncpu)"
+          make install
+
+      - name: Package
+        run: |
+          # Avoid AppleDouble (._*) entries in the tarball.
+          export COPYFILE_DISABLE=1
+          tar -czf verilator-darwin-aarch64.tar.gz inst
+
+      - name: Sanity-check the packaged install runs
+        run: |
+          rm -rf /tmp/vt && mkdir -p /tmp/vt
+          tar -C /tmp/vt -xzf verilator-darwin-aarch64.tar.gz
+          VERILATOR_ROOT=/tmp/vt/inst/share/verilator /tmp/vt/inst/bin/verilator_bin --version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verilator-darwin-aarch64
+          path: verilator-darwin-aarch64.tar.gz
+
+  release:
+    needs: [linux-x86_64, darwin-aarch64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dl
+
+      - name: Stamp + rename assets
+        id: stamp
+        run: |
+          STAMP="$(date +%Y%m%d)_${{ github.event.inputs.try }}"
+          mkdir -p out
+          mv dl/verilator-linux-x86_64/verilator-linux-x86_64.tar.gz \
+             out/verilator-linux-x86_64-${STAMP}.tar.gz
+          mv dl/verilator-darwin-aarch64/verilator-darwin-aarch64.tar.gz \
+             out/verilator-darwin-aarch64-${STAMP}.tar.gz
+          echo "stamp=$STAMP" >> "$GITHUB_OUTPUT"
+          echo "=== sha256 (paste these into http.MODULE.bazel, or leave blank) ==="
+          sha256sum out/*.tar.gz
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ steps.stamp.outputs.stamp }}
+          files: out/*.tar.gz
+          fail_on_unmatched_files: true
