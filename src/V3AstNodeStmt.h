@@ -1395,15 +1395,18 @@ class AstTracePushPrefix final : public AstNodeStmt {
     const int m_left;  // Array left index, or struct/union member count
     const int m_right;  // Array right index
     const bool m_quotedPrefix;  // Quote prefix name
+    const string m_defName;  // Module/interface definition name of scope, "" if not applicable
 public:
     AstTracePushPrefix(FileLine* fl, const string& prefix, VTracePrefixType prefixType,
-                       int left = 0, int right = 0, bool quotedPrefix = true)
+                       int left = 0, int right = 0, bool quotedPrefix = true,
+                       const string& defName = "")
         : ASTGEN_SUPER_TracePushPrefix(fl)
         , m_prefix{prefix}
         , m_prefixType{prefixType}
         , m_left{left}
         , m_right{right}
-        , m_quotedPrefix{quotedPrefix} {}
+        , m_quotedPrefix{quotedPrefix}
+        , m_defName{defName} {}
     ASTGEN_MEMBERS_AstTracePushPrefix;
     bool sameNode(const AstNode* samep) const override { return false; }
     string prefix() const { return m_prefix; }
@@ -1411,6 +1414,7 @@ public:
     int left() const { return m_left; }
     int right() const { return m_right; }
     bool quotedPrefix() const { return m_quotedPrefix; }
+    string defName() const { return m_defName; }
 };
 class AstWait final : public AstNodeStmt {
     // @astgen op1 := condp : AstNodeExpr

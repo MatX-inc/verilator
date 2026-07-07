@@ -49,14 +49,18 @@ VL_DEFINE_DEBUG_FUNCTIONS;
 class PathAdjustor final {
     FileLine* const m_flp;  // FileLine used for created nodes
     std::function<void(AstNodeStmt*)> m_emit;  // Function called with adjustment statements
+    // Resolves a path to the definition name of the module inlined there, or ""
+    std::function<std::string(const std::string&)> m_defNameOf;
     std::vector<std::string> m_stack{""};  // Stack of current paths
 
     static constexpr char SEPARATOR = ' ';
 
 public:
-    explicit PathAdjustor(FileLine* flp, std::function<void(AstNodeStmt*)> emit)
+    explicit PathAdjustor(FileLine* flp, std::function<void(AstNodeStmt*)> emit,
+                          std::function<std::string(const std::string&)> defNameOf)
         : m_flp{flp}
-        , m_emit{emit} {}
+        , m_emit{emit}
+        , m_defNameOf{defNameOf} {}
 
     // Emit Prefix adjustments until the current path is 'newPath'
     void adjust(const string& newPath, AstCell* cellp, AstVarScope* vscp) {
@@ -73,6 +77,16 @@ public:
                     || (vscp && VN_IS(vscp->dtypep(), IfaceRefDType))
                 ? VTracePrefixType::SCOPE_INTERFACE
                 : VTracePrefixType::SCOPE_MODULE;
+        // Definition name of the scope the last path element refers to
+        std::string lastDefName;
+        if (cellp) {
+            lastDefName = AstNode::prettyName(cellp->modp()->origName());
+        } else if (vscp) {
+            if (const AstIfaceRefDType* const dtypep = VN_CAST(vscp->dtypep(), IfaceRefDType)) {
+                if (const AstIface* const ifacep = dtypep->ifaceViaCellp())
+                    lastDefName = AstNode::prettyName(ifacep->origName());
+            }
+        }
         const std::string extraPrefix = newPath.substr(m_stack.back().size());
         size_t begin = 0;
         const size_t last = extraPrefix.rfind(SEPARATOR);
@@ -81,10 +95,16 @@ public:
             const size_t end = extraPrefix.find(SEPARATOR, begin);
             if (end == string::npos) break;
             const string& extra = extraPrefix.substr(begin, end - begin);
+            // Definition name: from the cell/interface itself for the last element when known,
+            // otherwise from the module inlined at this path (empty for e.g. begin blocks)
+            const std::string defName = (end == last && !lastDefName.empty())
+                                            ? lastDefName
+                                            : m_defNameOf(m_stack.back() + extra);
             if (end == last) {
-                m_emit(new AstTracePushPrefix{m_flp, extra, lastScopeType});
+                m_emit(new AstTracePushPrefix{m_flp, extra, lastScopeType, 0, 0, true, defName});
             } else {
-                m_emit(new AstTracePushPrefix{m_flp, extra, VTracePrefixType::SCOPE_MODULE});
+                m_emit(new AstTracePushPrefix{m_flp, extra, VTracePrefixType::SCOPE_MODULE, 0, 0,
+                                              true, defName});
             }
             m_stack.push_back(m_stack.back() + extra + SEPARATOR);
             begin = end + 1;
@@ -661,7 +681,24 @@ class TraceDeclVisitor final : public VNVisitor {
                 [](const TraceEntry& a, const TraceEntry& b) { return a.operatorCompare(b); });
 
             FileLine* const flp = nodep->fileline();
-            PathAdjustor pathAdjustor{flp, [&](AstNodeStmt* stmtp) { addToSubFunc(stmtp); }};
+            // Map from path of a scope flattened by inlining to the definition name of the
+            // module originally instantiated there. Named begin/generate blocks are recorded
+            // as "__BEGIN__" and have no definition name.
+            std::unordered_map<std::string, std::string> inlinedDefNames;
+            for (AstNode* inlp = nodep->modp()->inlinesp(); inlp; inlp = inlp->nextp()) {
+                if (const AstCellInline* const inlinep = VN_CAST(inlp, CellInline)) {
+                    if (inlinep->origModName() == "__BEGIN__") continue;
+                    UINFO(9, "inlinedDefName '" << AstNode::vcdName(inlinep->name()) << "' -> "
+                                                << inlinep->origModName());
+                    inlinedDefNames.emplace(AstNode::vcdName(inlinep->name()),
+                                            AstNode::prettyName(inlinep->origModName()));
+                }
+            }
+            PathAdjustor pathAdjustor{flp, [&](AstNodeStmt* stmtp) { addToSubFunc(stmtp); },
+                                      [&](const std::string& path) -> std::string {
+                                          const auto pit = inlinedDefNames.find(path);
+                                          return pit != inlinedDefNames.end() ? pit->second : "";
+                                      }};
             const bool splitRootPrimaryIos = nodep->isTop() && !v3Global.opt.libCreate().empty();
             const auto emitEntry = [&](const TraceEntry& entry) {
                 AstVarScope* const vscp = entry.vscp();

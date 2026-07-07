@@ -3795,7 +3795,8 @@ class LinkDotResolveVisitor final : public VNVisitor {
     void visit(AstCellInline* nodep) override {
         LINKDOT_VISIT_START();
         checkNoDot(nodep);
-        if (m_statep->forScopeCreation() && !v3Global.opt.vpi()) {
+        // Keep when tracing, so V3TraceDecl can recover the definition names of inlined scopes
+        if (m_statep->forScopeCreation() && !v3Global.opt.vpi() && !v3Global.opt.trace()) {
             nodep->unlinkFrBack();
             VL_DO_DANGLING(pushDeletep(nodep), nodep);
         }

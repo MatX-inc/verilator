@@ -850,6 +850,8 @@ class EmitCTrace final : public EmitCFunc {
         puts(nodep->prefixType().ascii());
         puts(", " + std::to_string(nodep->left()));
         puts(", " + std::to_string(nodep->right()));
+        puts(", ");
+        putsQuoted(VIdProtect::protectWordsIf(nodep->defName(), nodep->protect()));
         puts(");\n");
     }
     void visit(AstTracePopPrefix* nodep) override {  //

@@ -140,9 +140,10 @@ void VerilatedFst::declDTypeEnum(int dtypenum, const char* name, uint32_t elemen
 }
 
 void VerilatedFst::pushPrefix(const char* namep, VerilatedTracePrefixType type, int left,
-                              int right) {
+                              int right, const char* defNamep) {
     assert(!m_prefixStack.empty());  // Constructor makes an empty entry
     const std::string name{namep};
+    const std::string defName{defNamep ? defNamep : ""};
     // An empty name means this is the root of a model created with
     // name()=="".  The tools get upset if we try to pass this as empty, so
     // we put the signals under a new $rootio scope, but the signals
@@ -176,10 +177,10 @@ void VerilatedFst::pushPrefix(const char* namep, VerilatedTracePrefixType type, 
 
     switch (type) {
     case VerilatedTracePrefixType::SCOPE_MODULE:
-        m_fst->setScope(fst::Hierarchy::ScopeType::VCD_MODULE, name, std::string{});
+        m_fst->setScope(fst::Hierarchy::ScopeType::VCD_MODULE, name, defName);
         break;
     case VerilatedTracePrefixType::SCOPE_INTERFACE:
-        m_fst->setScope(fst::Hierarchy::ScopeType::VCD_INTERFACE, name, std::string{});
+        m_fst->setScope(fst::Hierarchy::ScopeType::VCD_INTERFACE, name, defName);
         break;
     case VerilatedTracePrefixType::STRUCT_PACKED:
         m_fst->setAttrBegin(fst::Hierarchy::AttrType::PACK,
