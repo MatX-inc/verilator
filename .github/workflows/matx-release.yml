@@ -36,8 +36,15 @@ jobs:
           # gives a modern C++ compiler on that old-glibc baseline.
           # ccache intentionally NOT installed (verilated.mk bakes it into
           # OBJCACHE; consumers clear it, and it need not be present at build).
+          # python3.11 explicitly: Verilator's BUILD scripts (src/astgen)
+          # use the walrus operator and need python >= 3.8; Rocky 8's
+          # default python3 is 3.6.  The packaged verilated.mk is
+          # normalized back to plain "python3" below -- the RUNTIME
+          # helper (bin/verilator_includer) has no such version floor,
+          # and baking a versioned name breaks any host that spells its
+          # modern python "python3".
           dnf -y install git make autoconf flex flex-devel bison \
-                         perl python3 help2man zlib-devel \
+                         perl python3.11 help2man zlib-devel \
                          gcc-toolset-11 tar gzip which
 
       - uses: actions/checkout@v5
@@ -48,9 +55,16 @@ jobs:
         run: |
           source /opt/rh/gcc-toolset-11/enable
           autoconf
-          ./configure --prefix="$PWD/inst"
+          PYTHON3=python3.11 ./configure --prefix="$PWD/inst"
           make -j"$(nproc)"
           make install
+          # Normalize the packaged makefile to the generic interpreter
+          # name (see the python3.11 note above): model builds on
+          # consumer machines must not depend on the build host's
+          # versioned python spelling.
+          sed -i 's/^PYTHON3 = .*/PYTHON3 = python3/' \
+              inst/share/verilator/include/verilated.mk
+          grep '^PYTHON3' inst/share/verilator/include/verilated.mk
 
       - name: Package
         run: |
@@ -92,6 +106,10 @@ jobs:
           ./configure --prefix="$PWD/inst"
           make -j"$(sysctl -n hw.ncpu)"
           make install
+          # Same normalization as the linux job (macOS configure already
+          # finds plain "python3", so this is a no-op safety net).
+          sed -i '' 's/^PYTHON3 = .*/PYTHON3 = python3/' \
+              inst/share/verilator/include/verilated.mk || true
 
       - name: Package
         run: |
