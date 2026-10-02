@@ -43,6 +43,10 @@ jobs:
           # helper (bin/verilator_includer) has no such version floor,
           # and baking a versioned name breaks any host that spells its
           # modern python "python3".
+          # flex-devel and help2man live in Rocky 8's PowerTools repository,
+          # which the container image leaves disabled.
+          dnf -y install dnf-plugins-core
+          dnf config-manager --set-enabled powertools
           dnf -y install git make autoconf flex flex-devel bison \
                          perl python3.11 help2man zlib-devel \
                          gcc-toolset-11 tar gzip which
